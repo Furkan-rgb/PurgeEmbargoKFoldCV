@@ -31,16 +31,11 @@ class PurgedKFoldCVWithEmbargos:
         splits = []
 
         for i in range(n_splits):
-            split_end = (i + 1) * (split_size + embargo_size)
-            
-            if expanding_window:
-                train_start = 0  # Always start from the beginning for expanding window
-                train_end = split_end - int(split_size * (1 - train_size)) - embargo_size
-            else:
-                # Original approach
-                split_start = i * (split_size + embargo_size)
-                train_start = split_start
-                train_end = train_start + int(split_size * train_size)
+            split_start = i * (split_size + embargo_size)
+            split_end = split_start + split_size
+
+            train_start = 0 if expanding_window else split_start
+            train_end = split_start + int(split_size * train_size)
 
             test_start = train_end + embargo_size
             test_end = split_end
