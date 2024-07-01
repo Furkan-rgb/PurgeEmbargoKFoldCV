@@ -11,16 +11,15 @@ class PurgedKFoldCVWithEmbargos:
         """
         self.df = df
 
-    def purged_k_fold_cv_with_embargos(self, n_splits, train_size, embargo_period_pct, expanding_window=False):
         """
         Generate training and test splits with embargo periods from the DataFrame.
-        
+
         Parameters:
-        - n_splits (int): The number of splits for cross-validation.
-        - train_size (float): The proportion of the dataset to include in the train split.
-        - embargo_period_pct (float): The embargo period as a percentage of the dataset.
-        - expanding_window (bool): Whether to use an expanding window approach (default: False).
-        
+        - n_splits: int, the number of splits for cross-validation.
+        - train_size: float, the proportion of the split to use for training.
+        - embargo_period_pct: float, the embargo period as a percentage of the dataset.
+        - expanding_window: bool, whether to use expanding window (default: False).
+
         Returns:
         - List of tuples, where each tuple contains two ranges: training indices and test indices.
         """
@@ -34,21 +33,21 @@ class PurgedKFoldCVWithEmbargos:
             split_start = i * (split_size + embargo_size)
             split_end = split_start + split_size
 
-            train_start = 0 if expanding_window else split_start
-            train_end = split_start + int(split_size * train_size)
+            if expanding_window:
+                train_start = 0
+                train_end = split_start + int(split_size * train_size)
+            else:
+                train_start = split_start
+                train_end = train_start + int(split_size * train_size)
 
-            test_start = train_end + embargo_size
+            test_start = split_start + int(split_size * train_size) + embargo_size
             test_end = split_end
 
+            # Create ranges for train and test indices
             train_range = range(train_start, train_end)
             test_range = range(test_start, test_end)
 
-            # Apply purging to remove overlapping samples
-            train_indices = self.df.index[train_range]
-            test_indices = self.df.index[test_range]
-            purged_train_indices = self.purge_overlapping_samples(train_indices, test_indices, embargo_size)
-
-            splits.append((purged_train_indices, list(test_range)))
+            splits.append((train_range, test_range))
 
         return splits
 
