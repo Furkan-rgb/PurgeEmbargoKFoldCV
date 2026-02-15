@@ -65,12 +65,13 @@ for fold_idx, (train_idx, test_idx) in enumerate(
         test_label_starts = test_idx
         test_label_ends = label_end_times[test_idx]
         
-        # Verify no overlap
+        # Verify no overlap: train interval [start, end] overlaps with test range [test_min, test_max]
+        # if train_start <= test_max AND train_end >= test_min
         test_min = test_label_starts.min()
         test_max = test_label_ends.max()
         
-        overlap_check = ((train_idx >= test_min) & (train_idx <= test_max)) | \
-                       ((train_label_ends >= test_min) & (train_label_ends <= test_max))
+        # Check for overlap: an interval overlaps if it's NOT completely before or after the test range
+        overlap_check = (train_idx <= test_max) & (train_label_ends >= test_min)
         
         print(f"  Overlapping labels purged: {overlap_check.sum() == 0} (verified)")
 

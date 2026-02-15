@@ -176,7 +176,8 @@ class PurgedKFoldCVWithEmbargos:
         test_end_position = test_positions.max()
         
         # Define embargo window: samples at positions (test_end_position, test_end_position + embargo_size]
-        embargo_end_position = min(test_end_position + embargo_size, len(self.df) - 1)
+        # Note: embargo_end_position can equal len(self.df) since we use > comparison (not >=)
+        embargo_end_position = min(test_end_position + embargo_size, len(self.df))
         
         # Get positions of training samples
         train_positions = self.df.index.get_indexer(train_indices)
