@@ -197,6 +197,93 @@ def test_edge_case_two_splits():
     assert len(all_test) == len(df)
 
 
+def test_embargo_anchored_to_purge_boundary():
+    """
+    Test that when label end times extend past the test fold end, the embargo starts
+    from the purge boundary (test_max_end position), not from test_end_position.
+
+    Without the fix the embargo window (200, 300] falls entirely inside the already-purged
+    region (200, 350], so it has no effect. With the fix the embargo starts at position 350
+    and removes samples in (350, 450].
+    """
+    n = 500
+    dates = pd.date_range('2020-01-01', periods=n, freq='D')
+    df = pd.DataFrame({'value': range(n)}, index=dates)
+
+    # Labels in the test fold (positions 200-249) look 150 bars into the future,
+    # so test_max_end is around position 350 in the index.
+    label_end_times = pd.Series(df.index, index=df.index)  # default: same as start
+    # Extend only the labels that fall inside the test fold (positions 200-249)
+    test_fold_end_date = dates[249]
+    test_max_end_date = dates[350]  # purge boundary
+    for date in dates[200:250]:
+        label_end_times[date] = test_max_end_date
+
+    cv = PurgedKFoldCVWithEmbargos(df, label_end_times)
+
+    # Use n_splits=5 so test fold 0 covers positions 0-99, fold 1 covers 100-199,
+    # fold 2 covers 200-299 (our target fold), etc.
+    # Use a small embargo that would be invisible without the fix:
+    # embargo_size = 50 bars (10% of 500)
+    embargo_pct = 50 / n  # 0.10
+
+    splits = list(cv.purged_k_fold_cv_with_embargos(n_splits=5, embargo_period_pct=embargo_pct))
+
+    # Fold 2: test covers positions 200-299
+    train_idx, test_idx = splits[2]
+
+    # Confirm the test fold is correct
+    assert dates[200] in test_idx
+    assert dates[299] in test_idx
+
+    # Position 351 should be embargoed (just after purge boundary 350, within embargo window)
+    assert dates[351] not in train_idx
+
+    # Position 401 should NOT be embargoed (beyond embargo window end at 400)
+    assert dates[401] in train_idx
+
+    # Positions before the test fold (e.g. position 100) should still be in training
+    assert dates[100] in train_idx
+
+
+def test_embargo_invisible_without_fix():
+    """
+    Confirm that the bug scenario: embargo_size < gap between test_end_position and
+    test_max_end_position means the embargo would have been entirely inside the purged
+    region. Verify the fix makes the embargo effective.
+    """
+    n = 200
+    dates = pd.date_range('2020-01-01', periods=n, freq='D')
+    df = pd.DataFrame({'value': range(n)}, index=dates)
+
+    # Labels in the first half (positions 0-99, the test fold) end at position 150.
+    # embargo_size = 30 bars. Old code: embargo window (99, 129] — entirely inside
+    # purged region (99, 150]. New code: embargo window (150, 180].
+    label_end_times = pd.Series(df.index, index=df.index)
+    purge_boundary_date = dates[150]
+    for date in dates[0:100]:
+        label_end_times[date] = purge_boundary_date
+
+    cv = PurgedKFoldCVWithEmbargos(df, label_end_times)
+
+    embargo_pct = 30 / n  # 15%
+
+    splits = list(cv.purged_k_fold_cv_with_embargos(n_splits=2, embargo_period_pct=embargo_pct))
+    train_idx, test_idx = splits[0]  # test = first half (positions 0-99)
+
+    # Positions 151-180 should be embargoed with the fix
+    for pos in range(151, 181):
+        assert dates[pos] not in train_idx, (
+            f"Position {pos} should be embargoed but was found in train_idx"
+        )
+
+    # Positions 181-199 should remain in training
+    for pos in range(181, 200):
+        assert dates[pos] in train_idx, (
+            f"Position {pos} should be in training but was not found"
+        )
+
+
 if __name__ == '__main__':
     # Run tests
     pytest.main([__file__, '-v'])
