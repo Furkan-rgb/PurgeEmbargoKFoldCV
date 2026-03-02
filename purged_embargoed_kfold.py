@@ -158,7 +158,14 @@ class PurgedKFoldCVWithEmbargos:
     def _apply_embargo(self, train_indices, test_indices, embargo_size):
         """
         Apply embargo by removing training samples that start within embargo_size samples
-        after the test fold ends.
+        after the effective end of the test fold, which is the purge boundary.
+
+        The embargo window starts from the purge boundary — the first sample position
+        after test_max_end (the furthest label end time in the test set) — rather than
+        from test_end_position (the positional end of the test fold). This ensures the
+        embargo is not invisible when label end times extend well beyond the test fold:
+        in that case the purge already removes samples up to test_max_end, and the
+        embargo must continue from there.
 
         Parameters:
         - train_indices (pd.Index): Index of training samples (after purging)
@@ -170,20 +177,29 @@ class PurgedKFoldCVWithEmbargos:
         """
         if len(train_indices) == 0 or len(test_indices) == 0:
             return train_indices
-        
-        # Find the last position of test samples in the original dataframe
+
+        # Find the furthest label end time in the test set (same boundary used by purge)
+        test_max_end = self.label_end_times[test_indices].max()
+
+        # Find the last position in df.index that is <= test_max_end (purge boundary)
+        purge_end_position = self.df.index.searchsorted(test_max_end, side='right') - 1
+
+        # Also get the positional end of the test fold itself
         test_positions = self.df.index.get_indexer(test_indices)
         test_end_position = test_positions.max()
-        
-        # Define embargo window: samples at positions (test_end_position, test_end_position + embargo_size]
+
+        # The embargo must start from whichever is further: the purge boundary or the test fold end
+        embargo_start = max(test_end_position, purge_end_position)
+
+        # Define embargo window: samples at positions (embargo_start, embargo_start + embargo_size]
         # Note: embargo_end_position can equal len(self.df) since we use > comparison (not >=)
-        embargo_end_position = min(test_end_position + embargo_size, len(self.df))
-        
+        embargo_end_position = min(embargo_start + embargo_size, len(self.df))
+
         # Get positions of training samples
         train_positions = self.df.index.get_indexer(train_indices)
-        
+
         # Keep training samples that are NOT in the embargo window
-        # Embargo window is: test_end_position < pos <= embargo_end_position
-        not_in_embargo = (train_positions <= test_end_position) | (train_positions > embargo_end_position)
-        
+        # Embargo window is: embargo_start < pos <= embargo_end_position
+        not_in_embargo = (train_positions <= embargo_start) | (train_positions > embargo_end_position)
+
         return train_indices[not_in_embargo]
